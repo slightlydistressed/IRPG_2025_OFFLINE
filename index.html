@@ -5,7 +5,6 @@
 <title>IRPG Offline Reference</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<!-- PWA manifest -->
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#2f6b3f">
 
@@ -17,14 +16,11 @@ aside { width:300px; background:#fff; border-right:1px solid #ccc; overflow-y:au
 aside h2, aside h3 { margin:0; padding:0.75rem 1rem; border-bottom:1px solid #ddd; }
 nav button { width:100%; border:none; background:none; padding:0.6rem 1rem; text-align:left; cursor:pointer; border-bottom:1px solid #eee; }
 nav button:hover { background:#f0f0f0; }
+nav .nested { padding-left:1.5rem; }
 main { flex:1; overflow-y:auto; padding:1.5rem; }
-section { display:none; }
-section.active { display:block; }
-.tag { display:inline-block; padding:0.25rem 0.5rem; border-radius:4px; font-size:0.8rem; color:#fff; }
 .pdf-pages canvas { display:block; margin:1rem auto; max-width:100%; box-shadow:0 0 4px rgba(0,0,0,.2); }
-.checklist li { list-style:none; margin-bottom:0.5rem; }
-textarea { width:100%; min-height:80px; margin-top:1rem; padding:0.5rem; }
 .bookmark { float:right; cursor:pointer; font-size:1.2rem; }
+textarea { width:100%; min-height:80px; margin-top:1rem; padding:0.5rem; }
 </style>
 </head>
 
@@ -39,79 +35,13 @@ textarea { width:100%; min-height:80px; margin-top:1rem; padding:0.5rem; }
 <h3>Bookmarks</h3>
 <nav id="bookmarkNav"></nav>
 
-<h3>Sections</h3>
-<nav>
-<button onclick="showSection('sizeup')">Size-Up</button>
-<button onclick="showSection('risk')">Risk Management</button>
-<button onclick="showSection('lces')">LCES</button>
-<button onclick="showSection('downhill')">Downhill Line</button>
-</nav>
+<h3>Table of Contents</h3>
+<nav id="tocNav"></nav>
 </aside>
 
 <main>
-<section id="sizeup">
-<span class="tag" style="background:var(--green)">Operational</span>
-<span class="bookmark" onclick="toggleBookmark('sizeup')">☆</span>
-<h1>Size-Up Report</h1>
 <div class="pdf-pages"></div>
-<ul class="checklist">
-<li><input type="checkbox"> Incident Type</li>
-<li><input type="checkbox"> Location / Jurisdiction</li>
-<li><input type="checkbox"> Incident Size</li>
-<li><input type="checkbox"> Incident Status</li>
-<li><input type="checkbox"> Establish IC And Fire Name</li>
-<li><input type="checkbox"> Weather Conditions</li>
-<li><input type="checkbox"> Radio Frequencies</li>
-<li><input type="checkbox"> Best Access Routes</li>
-<li><input type="checkbox"> Assets / Values at Risk</li>
-<li><input type="checkbox"> Special Hazards or Concerns</li>
-<li><input type="checkbox"> Additional Resource Needs</li>
-</ul>
 <textarea placeholder="Notes..."></textarea>
-</section>
-
-<section id="risk">
-<span class="tag" style="background:var(--green)">Operational</span>
-<span class="bookmark" onclick="toggleBookmark('risk')">☆</span>
-<h1>Risk Management Process</h1>
-<div class="pdf-pages"></div>
-<ol>
-<li>Identify Hazards</li>
-<li>Assess Hazards</li>
-<li>Develop Controls</li>
-<li>Implement Controls</li>
-<li>Supervise & Evaluate</li>
-</ol>
-<textarea placeholder="Notes..."></textarea>
-</section>
-
-<section id="lces">
-<span class="tag" style="background:var(--green)">Operational</span>
-<span class="bookmark" onclick="toggleBookmark('lces')">☆</span>
-<h1>LCES</h1>
-<div class="pdf-pages"></div>
-<ul class="checklist">
-<li><input type="checkbox"> Lookouts identified</li>
-<li><input type="checkbox"> Communications established</li>
-<li><input type="checkbox"> Escape routes identified</li>
-<li><input type="checkbox"> Safety zones identified</li>
-</ul>
-<textarea placeholder="Notes..."></textarea>
-</section>
-
-<section id="downhill">
-<span class="tag" style="background:var(--gray)">Hazard</span>
-<span class="bookmark" onclick="toggleBookmark('downhill')">☆</span>
-<h1>Downhill Fireline Construction</h1>
-<div class="pdf-pages"></div>
-<ul class="checklist">
-<li><input type="checkbox"> Supervisor approval</li>
-<li><input type="checkbox"> Line scouted</li>
-<li><input type="checkbox"> LCES coordinated</li>
-<li><input type="checkbox"> Anchor point established</li>
-</ul>
-<textarea placeholder="Notes..."></textarea>
-</section>
 </main>
 
 <script type="module">
@@ -121,98 +51,111 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = './pdf.worker.mjs';
 const pdfUrl = 'irpg.pdf';
 let pdfDoc = null;
 
-const IRPG_SECTIONS = {
-  sizeup:[6],
-  risk:[9],
-  lces:[15],
-  downhill:[16]
-};
+const tocNav = document.getElementById('tocNav');
+const recentNav = document.getElementById('recentNav');
+const bookmarkNav = document.getElementById('bookmarkNav');
+const pdfContainer = document.querySelector('.pdf-pages');
 
-pdfjsLib.getDocument(pdfUrl).promise.then(pdf => pdfDoc = pdf);
+// ------------------- PDF Load -------------------
+async function loadPDF() {
+  pdfDoc = await pdfjsLib.getDocument(pdfUrl).promise;
+  const outline = await pdfDoc.getOutline();
+  buildTOC(outline, tocNav);
+}
+loadPDF();
 
-async function renderSectionPDF(id) {
-  const container = document.querySelector(`#${id} .pdf-pages`);
-  container.innerHTML='';
-  for(const p of IRPG_SECTIONS[id]||[]) {
+// ------------------- Render Pages -------------------
+async function renderPages(pageNumbers) {
+  pdfContainer.innerHTML = '';
+  for (const p of pageNumbers) {
     const page = await pdfDoc.getPage(p);
-    const viewport = page.getViewport({scale:1.5});
+    const viewport = page.getViewport({ scale: 1.5 });
     const canvas = document.createElement('canvas');
     canvas.width = viewport.width;
     canvas.height = viewport.height;
-    container.appendChild(canvas);
-    await page.render({canvasContext:canvas.getContext('2d'), viewport}).promise;
+    pdfContainer.appendChild(canvas);
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
   }
 }
 
-function showSection(id) {
-  document.querySelectorAll('section').forEach(s=>s.classList.remove('active'));
-  document.getElementById(id).classList.add('active');
-  renderSectionPDF(id);
-  addRecent(id);
+// ------------------- Build TOC -------------------
+function buildTOC(items, container, level=0) {
+  if (!items) return;
+  items.forEach(item => {
+    const btn = document.createElement('button');
+    btn.textContent = item.title;
+    btn.classList.add(level>0?'nested':'');
+    btn.onclick = async () => {
+      const dest = await pdfDoc.getDestination(item.dest);
+      let pageNumbers = [];
+      if(dest && dest[0] instanceof Object && 'num' in dest[0]) {
+        pageNumbers = [dest[0].num]; // single page
+      } else if(typeof dest[0] === 'number') {
+        pageNumbers = [dest[0]+1]; // PDF.js pages start at 1
+      }
+      renderPages(pageNumbers);
+      addRecent(item.title);
+    };
+    container.appendChild(btn);
+    if(item.items && item.items.length) {
+      buildTOC(item.items, container, level+1);
+    }
+  });
 }
 
-function addRecent(id) {
+// ------------------- Recent Sections -------------------
+function addRecent(title) {
   let r = JSON.parse(localStorage.getItem('recent')||'[]');
-  r=r.filter(x=>x!==id);
-  r.unshift(id);
-  r=r.slice(0,5);
+  r = r.filter(x=>x!==title);
+  r.unshift(title);
+  r = r.slice(0,5);
   localStorage.setItem('recent',JSON.stringify(r));
   renderRecent();
 }
 
 function renderRecent() {
-  const nav = document.getElementById('recentNav');
-  nav.innerHTML='';
-  (JSON.parse(localStorage.getItem('recent')||'[]')).forEach(id=>{
-    const b=document.createElement('button');
-    b.textContent=id;
-    b.onclick=()=>showSection(id);
-    nav.appendChild(b);
+  recentNav.innerHTML = '';
+  (JSON.parse(localStorage.getItem('recent')||'[]')).forEach(title => {
+    const btn = document.createElement('button');
+    btn.textContent = title;
+    btn.onclick = () => {
+      const tocBtn = Array.from(tocNav.querySelectorAll('button')).find(b=>b.textContent===title);
+      if(tocBtn) tocBtn.click();
+    };
+    recentNav.appendChild(btn);
   });
 }
 
-function toggleBookmark(id) {
+// ------------------- Bookmarks -------------------
+function toggleBookmark(title) {
   let b = JSON.parse(localStorage.getItem('bookmarks')||'[]');
-  b.includes(id)? b=b.filter(x=>x!==id) : b.push(id);
+  b.includes(title)? b=b.filter(x=>x!==title) : b.push(title);
   localStorage.setItem('bookmarks',JSON.stringify(b));
   renderBookmarks();
-  updateStars();
 }
 
 function renderBookmarks() {
-  const nav = document.getElementById('bookmarkNav');
-  nav.innerHTML='';
-  (JSON.parse(localStorage.getItem('bookmarks')||'[]')).forEach(id=>{
+  bookmarkNav.innerHTML = '';
+  (JSON.parse(localStorage.getItem('bookmarks')||'[]')).forEach(title => {
     const btn = document.createElement('button');
-    btn.textContent=id;
-    btn.onclick = ()=>showSection(id);
-    nav.appendChild(btn);
+    btn.textContent = title;
+    btn.onclick = () => {
+      const tocBtn = Array.from(tocNav.querySelectorAll('button')).find(b=>b.textContent===title);
+      if(tocBtn) tocBtn.click();
+    };
+    bookmarkNav.appendChild(btn);
   });
 }
 
-function updateStars() {
-  document.querySelectorAll('.bookmark').forEach(star=>{
-    const id = star.closest('section').id;
-    star.textContent = (JSON.parse(localStorage.getItem('bookmarks')||'[]').includes(id))?'★':'☆';
-  });
-}
-
-document.querySelectorAll('input[type=checkbox]').forEach((cb,i)=>{
-  cb.checked = localStorage.getItem('cb'+i)==='true';
-  cb.addEventListener('change',()=>localStorage.setItem('cb'+i,cb.checked));
-});
-
-document.querySelectorAll('textarea').forEach((ta,i)=>{
-  ta.value = localStorage.getItem('note'+i)||'';
-  ta.addEventListener('input',()=>localStorage.setItem('note'+i,ta.value));
-});
+// ------------------- Notes persistence -------------------
+const textarea = document.querySelector('textarea');
+textarea.value = localStorage.getItem('notes')||'';
+textarea.addEventListener('input',()=>localStorage.setItem('notes',textarea.value));
 
 renderRecent();
 renderBookmarks();
-updateStars();
-showSection('sizeup');
 
-// Register Service Worker
+// ------------------- Service Worker -------------------
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('service-worker.js');
 }
