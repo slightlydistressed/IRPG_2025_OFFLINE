@@ -5,27 +5,76 @@
 <title>IRPG Offline Reference</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
+<!-- PWA Manifest -->
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#2f6b3f">
 
 <style>
-:root { --green:#2f6b3f; --gray:#6b6b6b; --bg:#f4f4f4; --text:#222; }
+/* -------------------- Root Variables -------------------- */
+:root {
+  --green:#2f6b3f;
+  --gray:#6b6b6b;
+  --bg:#f4f4f4;
+  --text:#222;
+}
 
-body { margin:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); display:flex; height:100vh; }
-aside { width:300px; background:#fff; border-right:1px solid #ccc; overflow-y:auto; }
-aside h2, aside h3 { margin:0; padding:0.75rem 1rem; border-bottom:1px solid #ddd; }
-nav button { width:100%; border:none; background:none; padding:0.6rem 1rem; text-align:left; cursor:pointer; border-bottom:1px solid #eee; }
+/* -------------------- Layout -------------------- */
+body {
+  margin:0;
+  font-family: system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  display:flex;
+  height:100vh;
+}
+
+aside {
+  width:300px;
+  background:#fff;
+  border-right:1px solid #ccc;
+  overflow-y:auto;
+}
+
+aside h2,h3 { 
+  margin:0; padding:0.75rem 1rem; border-bottom:1px solid #ddd; 
+}
+
+nav button {
+  width:100%; border:none; background:none; padding:0.6rem 1rem;
+  text-align:left; cursor:pointer; border-bottom:1px solid #eee;
+}
 nav button:hover { background:#f0f0f0; }
 nav .nested { padding-left:1.5rem; }
-main { flex:1; overflow-y:auto; padding:1.5rem; }
-.pdf-pages canvas { display:block; margin:1rem auto; max-width:100%; box-shadow:0 0 4px rgba(0,0,0,.2); }
-.bookmark { float:right; cursor:pointer; font-size:1.2rem; }
-textarea { width:100%; min-height:80px; margin-top:1rem; padding:0.5rem; }
+
+main {
+  flex:1;
+  overflow-y:auto;
+  padding:1.5rem;
+}
+
+.pdf-pages canvas {
+  display:block;
+  margin:1rem auto;
+  max-width:100%;
+  box-shadow:0 0 4px rgba(0,0,0,.2);
+}
+
+textarea {
+  width:100%;
+  min-height:80px;
+  margin-top:1rem;
+  padding:0.5rem;
+}
+
+.bookmark {
+  float:right; cursor:pointer; font-size:1.2rem;
+}
 </style>
 </head>
 
 <body>
 
+<!-- -------------------- Sidebar -------------------- -->
 <aside>
 <h2>IRPG</h2>
 
@@ -39,14 +88,17 @@ textarea { width:100%; min-height:80px; margin-top:1rem; padding:0.5rem; }
 <nav id="tocNav"></nav>
 </aside>
 
+<!-- -------------------- Main Content -------------------- -->
 <main>
 <div class="pdf-pages"></div>
 <textarea placeholder="Notes..."></textarea>
 </main>
 
+<!-- -------------------- PDF.js Module -------------------- -->
 <script type="module">
 import * as pdfjsLib from './pdf.mjs';
 
+// -------------------- PDF Setup --------------------
 pdfjsLib.GlobalWorkerOptions.workerSrc = './pdf.worker.mjs';
 const pdfUrl = 'irpg.pdf';
 let pdfDoc = null;
@@ -55,19 +107,57 @@ const tocNav = document.getElementById('tocNav');
 const recentNav = document.getElementById('recentNav');
 const bookmarkNav = document.getElementById('bookmarkNav');
 const pdfContainer = document.querySelector('.pdf-pages');
+const notesArea = document.querySelector('textarea');
 
-// ------------------- PDF Load -------------------
+// -------------------- Load PDF and Build TOC --------------------
 async function loadPDF() {
   pdfDoc = await pdfjsLib.getDocument(pdfUrl).promise;
+
+  // Fetch outline (PDF table of contents)
   const outline = await pdfDoc.getOutline();
+
+  // Build TOC in sidebar
   buildTOC(outline, tocNav);
 }
-loadPDF();
 
-// ------------------- Render Pages -------------------
+// Recursive function to build nested TOC buttons
+function buildTOC(items, container, level=0) {
+  if(!items) return;
+
+  items.forEach(item => {
+    const btn = document.createElement('button');
+    btn.textContent = item.title;
+    btn.classList.add(level>0?'nested':'');
+
+    // -------------------- What happens when TOC item clicked --------------------
+    btn.onclick = async () => {
+      const dest = await pdfDoc.getDestination(item.dest);
+      let pageNumbers = [];
+
+      // Determine page numbers from destination
+      if(dest && dest[0] && typeof dest[0] === 'object' && 'num' in dest[0]) {
+        pageNumbers = [dest[0].num];
+      } else if(dest && typeof dest[0] === 'number') {
+        pageNumbers = [dest[0]+1]; // PDF.js pages start at 1
+      }
+
+      renderPages(pageNumbers);
+      addRecent(item.title); // Track recently viewed sections
+    };
+
+    container.appendChild(btn);
+
+    // Recursively add nested items
+    if(item.items && item.items.length) {
+      buildTOC(item.items, container, level+1);
+    }
+  });
+}
+
+// -------------------- Render PDF Pages --------------------
 async function renderPages(pageNumbers) {
   pdfContainer.innerHTML = '';
-  for (const p of pageNumbers) {
+  for(const p of pageNumbers) {
     const page = await pdfDoc.getPage(p);
     const viewport = page.getViewport({ scale: 1.5 });
     const canvas = document.createElement('canvas');
@@ -78,44 +168,19 @@ async function renderPages(pageNumbers) {
   }
 }
 
-// ------------------- Build TOC -------------------
-function buildTOC(items, container, level=0) {
-  if (!items) return;
-  items.forEach(item => {
-    const btn = document.createElement('button');
-    btn.textContent = item.title;
-    btn.classList.add(level>0?'nested':'');
-    btn.onclick = async () => {
-      const dest = await pdfDoc.getDestination(item.dest);
-      let pageNumbers = [];
-      if(dest && dest[0] instanceof Object && 'num' in dest[0]) {
-        pageNumbers = [dest[0].num]; // single page
-      } else if(typeof dest[0] === 'number') {
-        pageNumbers = [dest[0]+1]; // PDF.js pages start at 1
-      }
-      renderPages(pageNumbers);
-      addRecent(item.title);
-    };
-    container.appendChild(btn);
-    if(item.items && item.items.length) {
-      buildTOC(item.items, container, level+1);
-    }
-  });
-}
-
-// ------------------- Recent Sections -------------------
+// -------------------- Recent Sections --------------------
 function addRecent(title) {
   let r = JSON.parse(localStorage.getItem('recent')||'[]');
-  r = r.filter(x=>x!==title);
+  r = r.filter(x=>x!==title); // remove duplicates
   r.unshift(title);
-  r = r.slice(0,5);
+  r = r.slice(0,5); // keep last 5
   localStorage.setItem('recent',JSON.stringify(r));
   renderRecent();
 }
 
 function renderRecent() {
-  recentNav.innerHTML = '';
-  (JSON.parse(localStorage.getItem('recent')||'[]')).forEach(title => {
+  recentNav.innerHTML='';
+  (JSON.parse(localStorage.getItem('recent')||'[]')).forEach(title=>{
     const btn = document.createElement('button');
     btn.textContent = title;
     btn.onclick = () => {
@@ -126,7 +191,7 @@ function renderRecent() {
   });
 }
 
-// ------------------- Bookmarks -------------------
+// -------------------- Bookmarks --------------------
 function toggleBookmark(title) {
   let b = JSON.parse(localStorage.getItem('bookmarks')||'[]');
   b.includes(title)? b=b.filter(x=>x!==title) : b.push(title);
@@ -135,8 +200,8 @@ function toggleBookmark(title) {
 }
 
 function renderBookmarks() {
-  bookmarkNav.innerHTML = '';
-  (JSON.parse(localStorage.getItem('bookmarks')||'[]')).forEach(title => {
+  bookmarkNav.innerHTML='';
+  (JSON.parse(localStorage.getItem('bookmarks')||'[]')).forEach(title=>{
     const btn = document.createElement('button');
     btn.textContent = title;
     btn.onclick = () => {
@@ -147,15 +212,16 @@ function renderBookmarks() {
   });
 }
 
-// ------------------- Notes persistence -------------------
-const textarea = document.querySelector('textarea');
-textarea.value = localStorage.getItem('notes')||'';
-textarea.addEventListener('input',()=>localStorage.setItem('notes',textarea.value));
+// -------------------- Notes Persistence --------------------
+notesArea.value = localStorage.getItem('notes')||'';
+notesArea.addEventListener('input',()=>localStorage.setItem('notes',notesArea.value));
 
+// -------------------- Initialize --------------------
+loadPDF();
 renderRecent();
 renderBookmarks();
 
-// ------------------- Service Worker -------------------
+// -------------------- Service Worker --------------------
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('service-worker.js');
 }
